@@ -33,6 +33,15 @@ def flare_distance(flare):
         return np.inf  # Discard if position is missing
     return np.sqrt(x**2 + y**2)
 
+def format_time(t):
+    """Convert astropy Time or datetime to string (fallback-safe)."""
+    if t is None:
+        return ""
+    try:
+        return str(t.to_datetime())
+    except AttributeError:
+        return str(t)
+
 def query_flare_events():
     """Query HEK for flare events, filter, and save to CSV."""
     client = HEKClient()
@@ -45,7 +54,6 @@ def query_flare_events():
         result = client.search(
             a.Time(start, end),
             hek_attrs.EventType("FL")
-            # 不依赖 SunPy 的 GOESCls >= 比较，手动过滤更稳
         )
         print(f"  Found {len(result)} events from HEK")
 
@@ -60,13 +68,16 @@ def query_flare_events():
             dist = flare_distance(r)
             if dist <= MAX_SOLAR_DISTANCE:
                 all_events.append({
-                    "start_time": r.get("event_starttime"),
-                    "peak_time": r.get("event_peaktime"),
-                    "end_time": r.get("event_endtime"),
+                    "event_id": f"event_{len(all_events):04d}",
+                    "hek_id": r.get("hek_id"),
+                    "start_time": format_time(r.get("event_starttime")),
+                    "peak_time": format_time(r.get("event_peaktime")),
+                    "end_time": format_time(r.get("event_endtime")),
                     "hpc_x": r.get("hpc_x"),
                     "hpc_y": r.get("hpc_y"),
                     "goes_class": flare_class,
-                    "distance": dist
+                    "distance": dist,
+                    "ar_noaa": r.get("ar_noaanum"),
                 })
 
     df = pd.DataFrame(all_events)
