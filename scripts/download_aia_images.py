@@ -64,6 +64,11 @@ for i, row in events.iterrows():
     t_end = peak_time + timedelta(minutes=DELTA_MINUTES)
 
     event_id = row["event_id"]
+    save_event_dir = os.path.join(output_base, f"{event_id}")
+    if os.path.exists(save_event_dir) and any(os.scandir(save_event_dir)):
+        logger.info(f"[{event_id}] Skipping: already downloaded.")
+        continue
+
     record = {
         "event_id": event_id,
         "peak_time": peak_time,
@@ -76,7 +81,7 @@ for i, row in events.iterrows():
             result = client.search(
                 a.Time(t_start, t_end),
                 a.jsoc.Series("aia.lev1_euv_12s"),
-                a.Wavelength(wl * u.angstrom),
+                a.jsoc.Wavelength(wl * u.angstrom),
                 a.jsoc.Segment("image"),
                 a.jsoc.Notify("kyang30@student.gsu.edu")
             )
@@ -86,7 +91,7 @@ for i, row in events.iterrows():
                 record[f"{wl}A_count"] = 0
                 continue
 
-            save_dir = os.path.join(output_base, f"{event_id}", f"{wl}A")
+            save_dir = os.path.join(save_event_dir, f"{wl}A")
             os.makedirs(save_dir, exist_ok=True)
 
             success = False

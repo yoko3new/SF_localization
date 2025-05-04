@@ -17,4 +17,4 @@ done
 
 # 等待所有后台任务完成
 wait
-echo "✅ All batches finished."
+echo "✅ All batches finished." 
