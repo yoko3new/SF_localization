@@ -1,10 +1,18 @@
 """
 query_flare_events.py
 
-This script queries C-class and above solar flare events from the HEK database
-within specified monthly time ranges. It filters out flares near the solar limb
-(using a configurable maximum angular distance), and saves the results to a CSV file
-for use in flare localization tasks.
+This script queries solar flare events of GOES class C1.0 or above from the
+Heliophysics Event Knowledgebase (HEK). It performs the following steps:
+
+1. Loops over specified monthly time windows.
+2. Queries the HEK database for flare events (EventType="FL").
+3. Filters events based on:
+    - GOES classification (e.g., ≥ C1.0)
+    - Helioprojective Cartesian (HPC) distance from solar disk center (to exclude limb events)
+4. Extracts relevant metadata (time, location, class, NOAA AR number).
+5. Saves the filtered list to a CSV file for downstream use.
+
+This script is intended to support solar flare localization studies.
 """
 
 import sys
@@ -26,15 +34,29 @@ from config.config import (
 )
 
 def flare_distance(flare):
-    """Compute angular distance from solar disk center (HPC coordinates)."""
+    """
+    Compute the angular distance (in arcseconds) of the flare center from the
+    center of the solar disk using helioprojective Cartesian (HPC) coordinates.
+
+    Returns:
+        float: Euclidean distance in arcseconds. If coordinates are missing, returns np.inf.
+    """
     x = flare.get('hpc_x', 0)
     y = flare.get('hpc_y', 0)
     if x is None or y is None:
-        return np.inf  # Discard if position is missing
+        return np.inf
     return np.sqrt(x**2 + y**2)
 
 def format_time(t):
-    """Convert astropy Time or datetime to string (fallback-safe)."""
+    """
+    Safely format time fields to ISO string.
+    
+    Args:
+        t (datetime or astropy.time.Time): Time object
+
+    Returns:
+        str: ISO time string or empty string if unavailable
+    """
     if t is None:
         return ""
     try:
@@ -43,10 +65,12 @@ def format_time(t):
         return str(t)
 
 def query_flare_events():
-    """Query HEK for flare events, filter, and save to CSV."""
+    """
+    Query the HEK database for solar flares within the given monthly time ranges,
+    filter them by GOES class and spatial position, and save the result to a CSV file.
+    """
     client = HEKClient()
     all_events = []
-
     threshold_value = goes_class_to_number(GOES_CLASS_THRESHOLD)
 
     for start, end in MONTHLY_WINDOWS:
@@ -61,9 +85,9 @@ def query_flare_events():
             flare_class = r.get("fl_goescls", "")
             try:
                 if goes_class_to_number(flare_class) < threshold_value:
-                    continue  # skip low-class flare
+                    continue
             except Exception:
-                continue  # skip invalid flare class strings
+                continue  # Skip unparseable or missing flare classes
 
             dist = flare_distance(r)
             if dist <= MAX_SOLAR_DISTANCE:

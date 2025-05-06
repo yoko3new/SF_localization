@@ -16,7 +16,7 @@ from config.config import WAVELENGTHS, DELTA_MINUTES, AIA_DOWNLOAD_RESOLUTION
 # -----------------------
 # Argument Parser
 # -----------------------
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description="Download AIA data from JSOC for a range of flare events.")
 parser.add_argument("--start", type=int, default=0, help="Start index of flare events")
 parser.add_argument("--end", type=int, default=None, help="End index of flare events")
 args = parser.parse_args()
@@ -37,10 +37,10 @@ console = logging.StreamHandler()
 console.setLevel(logging.INFO)
 console.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 logger.addHandler(console)
-logger.info(f"🔥 Running event batch: {args.start} to {args.end}")
+logger.info(f"Starting JSOC batch download for event indices {args.start} to {args.end}")
 
 # -----------------------
-# Setup
+# Setup JSOC and Paths
 # -----------------------
 client = JSOCClient()
 event_csv = "/data/kyang30/flare_localization/events.csv"
@@ -48,7 +48,7 @@ output_base = "/data/kyang30/flare_localization/aia"
 os.makedirs(output_base, exist_ok=True)
 
 # -----------------------
-# Read and Slice Events
+# Load and Slice Events
 # -----------------------
 events = pd.read_csv(event_csv)
 events = events.iloc[args.start:args.end]
@@ -56,17 +56,18 @@ events = events.iloc[args.start:args.end]
 records = []
 
 # -----------------------
-# Loop over Events
+# Process Each Event
 # -----------------------
 for i, row in events.iterrows():
     peak_time = pd.to_datetime(row["peak_time"])
     t_start = peak_time - timedelta(minutes=DELTA_MINUTES)
     t_end = peak_time + timedelta(minutes=DELTA_MINUTES)
-
     event_id = row["event_id"]
     save_event_dir = os.path.join(output_base, f"{event_id}")
+
+    # Skip if already downloaded
     if os.path.exists(save_event_dir) and any(os.scandir(save_event_dir)):
-        logger.info(f"[{event_id}] Skipping: already downloaded.")
+        logger.info(f"[{event_id}] Skipped: already downloaded.")
         continue
 
     record = {
@@ -75,7 +76,7 @@ for i, row in events.iterrows():
     }
 
     for wl in WAVELENGTHS:
-        logger.info(f"[{event_id}] Querying {wl}Å from {t_start} to {t_end} via JSOC")
+        logger.info(f"[{event_id}] Querying {wl} Å from {t_start} to {t_end}")
 
         try:
             result = client.search(
@@ -83,11 +84,11 @@ for i, row in events.iterrows():
                 a.jsoc.Series("aia.lev1_euv_12s"),
                 a.jsoc.Wavelength(wl * u.angstrom),
                 a.jsoc.Segment("image"),
-                a.jsoc.Notify("kyang30@student.gsu.edu")
+                a.jsoc.Notify("kyang30@student.gsu.edu")  # Replace with your email
             )
 
             if len(result) == 0:
-                logger.warning(f"  ⚠️  No data found for {wl}Å @ {peak_time}")
+                logger.warning(f"[{event_id}] No data found for {wl} Å")
                 record[f"{wl}A_count"] = 0
                 continue
 
@@ -98,27 +99,27 @@ for i, row in events.iterrows():
             for attempt in range(3):
                 try:
                     client.fetch(result, path=os.path.join(save_dir, "{file}"))
-                    logger.info(f"  ✅ Downloaded {len(result)} files for {wl}Å")
+                    logger.info(f"[{event_id}] Downloaded {len(result)} files for {wl} Å")
                     record[f"{wl}A_count"] = len(result)
                     success = True
                     break
                 except Exception as e:
-                    logger.warning(f"  ⚠️  Retry {attempt+1} for {wl}Å @ {peak_time}: {e}")
+                    logger.warning(f"[{event_id}] Retry {attempt+1} failed for {wl} Å: {e}")
                     time.sleep(5)
 
             if not success:
-                logger.error(f"  ❌ Final failure for {wl}Å @ {peak_time}")
+                logger.error(f"[{event_id}] Final failure for {wl} Å")
                 record[f"{wl}A_count"] = -1
 
         except Exception as e:
-            logger.error(f"  ❌ Error during JSOC search for {wl}Å @ {peak_time}: {e}")
+            logger.error(f"[{event_id}] Error during JSOC search for {wl} Å: {e}")
             record[f"{wl}A_count"] = -1
 
     records.append(record)
 
 # -----------------------
-# Save Summary
+# Save Download Summary
 # -----------------------
 summary_csv = f"/data/kyang30/flare_localization/aia_download_summary_{args.start}_{args.end}.csv"
 pd.DataFrame(records).to_csv(summary_csv, index=False)
-logger.info(f"📄 Saved download summary to {summary_csv}")
+logger.info(f"Download summary saved to {summary_csv}")
